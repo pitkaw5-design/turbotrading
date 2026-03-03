@@ -1,0 +1,66 @@
+# TurboTrading – default configuration
+
+# ─── Trading instruments ────────────────────────────────────────────────────
+instruments:
+  forex:
+    - EURUSD
+    - GBPUSD
+    - USDJPY
+    - AUDUSD
+    - USDCHF
+    - USDCAD
+  commodities:
+    - XAUUSD   # Gold
+    - USOIL    # Crude oil (WTI)
+
+# ─── MT5 connection ─────────────────────────────────────────────────────────
+mt5:
+  login: 0              # set via env MT5_LOGIN
+  password: ""          # set via env MT5_PASSWORD
+  server: ""            # set via env MT5_SERVER
+  timeout: 60000        # ms
+
+# ─── Technical analysis ─────────────────────────────────────────────────────
+technical:
+  timeframe: "H1"       # primary timeframe (M1 M5 M15 M30 H1 H4 D1 W1 MN)
+  lookback_bars: 500    # history bars to load
+  sma_fast: 20
+  sma_slow: 50
+  ema_trend: 200
+  rsi_period: 14
+  rsi_overbought: 70
+  rsi_oversold: 30
+  macd_fast: 12
+  macd_slow: 26
+  macd_signal: 9
+  atr_period: 14
+  bb_period: 20
+  bb_std: 2.0
+  stoch_k: 5
+  stoch_d: 3
+  stoch_smooth: 3
+
+# ─── Fundamental data ───────────────────────────────────────────────────────
+fundamental:
+  calendar_url: "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
+  high_impact_only: true
+  news_lookback_hours: 24
+
+# ─── Risk management ────────────────────────────────────────────────────────
+risk:
+  max_risk_per_trade_pct: 1.0      # % of equity risked per trade
+  max_open_trades: 5               # concurrent positions limit
+  max_daily_loss_pct: 3.0          # daily drawdown circuit-breaker (%)
+  max_total_drawdown_pct: 10.0     # absolute equity drawdown limit (%)
+  default_sl_atr_multiplier: 2.0   # SL = entry ± ATR × multiplier
+  default_tp_rr_ratio: 2.0         # TP = entry ± SL_distance × ratio
+  trailing_stop: true
+  trailing_stop_atr_multiplier: 1.5
+
+# ─── AI Agent ───────────────────────────────────────────────────────────────
+agent:
+  model: "gpt-4o"           # OpenAI model; set API key via env OPENAI_API_KEY
+  temperature: 0.1
+  max_iterations: 10        # tool-call iterations per analysis cycle
+  cycle_interval_seconds: 300  # time between full analysis cycles (5 min)
+  dry_run: true             # if true, log trades but do NOT send orders to MT5
