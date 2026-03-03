@@ -1,0 +1,15 @@
+# Core dependencies
+numpy>=1.26,<2.0
+pandas>=2.1,<3.0
+scikit-learn>=1.4,<2.0
+
+# Broker / market data
+MetaTrader5>=5.0.45; sys_platform == "win32"
+requests>=2.31,<3.0
+
+# Configuration / utilities
+python-dotenv>=1.0,<2.0
+pyyaml>=6.0,<7.0
+
+# Development / testing (optional)
+pytest>=8.0,<9.0
