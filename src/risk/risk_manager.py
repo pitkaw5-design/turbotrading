@@ -60,6 +60,14 @@ class RiskManager:
     def set_open_trade_count(self, count: int) -> None:
         self._open_trade_count = count
 
+    def increment_open_trade_count(self) -> None:
+        """Increment the tracked open-trade count by one.
+
+        Called by the agent immediately after a successful trade execution
+        within a cycle so that intra-cycle risk limits are correctly enforced.
+        """
+        self._open_trade_count += 1
+
     # ── Guard checks ──────────────────────────────────────────────────────────
 
     def can_open_trade(self, equity: float) -> tuple[bool, str]:

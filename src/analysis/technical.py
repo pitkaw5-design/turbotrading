@@ -66,8 +66,8 @@ class TechnicalAnalyzer:
         sma_slow = self._sma(close, cfg.get("sma_slow", 50))
         ema_trend = self._ema(close, cfg.get("ema_trend", 200))
 
-        result["sma_fast"] = round(sma_fast, 5)
-        result["sma_slow"] = round(sma_slow, 5)
+        result["sma_fast"] = round(sma_fast, 5) if sma_fast is not None else None
+        result["sma_slow"] = round(sma_slow, 5) if sma_slow is not None else None
         result["ema_trend"] = round(ema_trend, 5) if ema_trend is not None else None
         result["price"] = round(float(close.iloc[-1]), 5)
 
@@ -187,8 +187,11 @@ class TechnicalAnalyzer:
     # ── Indicator helpers ─────────────────────────────────────────────────────
 
     @staticmethod
-    def _sma(series: pd.Series, period: int) -> float:
-        return float(series.rolling(period).mean().iloc[-1])
+    def _sma(series: pd.Series, period: int) -> float | None:
+        if len(series) < period:
+            return None
+        val = series.rolling(period).mean().iloc[-1]
+        return float(val) if not np.isnan(val) else None
 
     @staticmethod
     def _ema(series: pd.Series, period: int) -> float | None:
@@ -205,6 +208,12 @@ class TechnicalAnalyzer:
         loss = (-delta.clip(upper=0)).rolling(period).mean()
         rs = gain / loss.replace(0, np.nan)
         rsi = 100 - (100 / (1 + rs))
+        # When loss == 0, the division produces NaN.  Correct values:
+        #   gain > 0 and loss == 0  →  RSI = 100 (pure uptrend, no losses)
+        #   gain == 0 and loss == 0 →  RSI = 50  (no price movement)
+        zero_loss = loss == 0
+        rsi = rsi.where(~zero_loss, other=100.0)
+        rsi = rsi.where(~(zero_loss & (gain == 0)), other=50.0)
         val = rsi.iloc[-1]
         return float(val) if not np.isnan(val) else None
 

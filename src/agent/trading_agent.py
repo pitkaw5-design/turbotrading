@@ -419,6 +419,9 @@ class TradingAgent:
             sl=sl,
             tp=tp,
         )
+        # Keep the intra-cycle risk counter in sync so that subsequent symbols
+        # in the same cycle correctly see the updated position count.
+        self._risk.increment_open_trade_count()
         return {"status": "executed", "order": result, "reason": reason}
 
     def _handle_close_trade(

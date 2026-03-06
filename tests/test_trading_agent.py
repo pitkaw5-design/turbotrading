@@ -204,3 +204,52 @@ class TestRunOnce:
         ):
             actions = agent.run_once()
         assert isinstance(actions, list)
+
+
+class TestIntraCycleTradeLimit:
+    def test_open_trade_increments_risk_count(self, agent: TradingAgent) -> None:
+        """After a successful open_trade, the RiskManager's count must be incremented
+        so that subsequent trades in the same cycle respect max_open_trades."""
+        agent._risk.update_account(10_000, 10_000)
+        agent._risk.set_open_trade_count(0)
+        df = _make_df()
+
+        with (
+            patch.object(agent._fundamental, "is_news_blackout", return_value=False),
+            patch.object(agent._mt5, "get_rates", return_value=df),
+            patch.object(
+                agent._technical,
+                "analyze",
+                return_value={"signal": "BUY", "signal_strength": 0.7, "atr": 0.0015, "price": 1.1020},
+            ),
+            patch.object(agent._mt5, "get_symbol_info", return_value={}),
+        ):
+            agent._handle_open_trade("EURUSD", "BUY", "test", 10_000)
+
+        # Count must have been incremented from 0 to 1
+        assert agent._risk._open_trade_count == 1
+
+    def test_second_trade_blocked_after_max_reached(self, agent: TradingAgent) -> None:
+        """With max_open_trades=1, the second call to _handle_open_trade in the
+        same cycle must be blocked after the first trade increments the count."""
+        # Override max to 1 for this test
+        agent._risk._max_open_trades = 1
+        agent._risk.update_account(10_000, 10_000)
+        agent._risk.set_open_trade_count(0)
+        df = _make_df()
+
+        analysis_patch = {
+            "signal": "BUY", "signal_strength": 0.7, "atr": 0.0015, "price": 1.1020
+        }
+        with (
+            patch.object(agent._fundamental, "is_news_blackout", return_value=False),
+            patch.object(agent._mt5, "get_rates", return_value=df),
+            patch.object(agent._technical, "analyze", return_value=analysis_patch),
+            patch.object(agent._mt5, "get_symbol_info", return_value={}),
+        ):
+            result1 = agent._handle_open_trade("EURUSD", "BUY", "first", 10_000)
+            result2 = agent._handle_open_trade("GBPUSD", "BUY", "second", 10_000)
+
+        assert result1["status"] == "executed"
+        assert result2["status"] == "blocked"
+        assert "max_open_trades" in result2["reason"]

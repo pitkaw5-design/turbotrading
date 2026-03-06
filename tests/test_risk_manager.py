@@ -146,3 +146,42 @@ class TestSlDistanceInPips:
         # 10 pips = 0.0010 for a 5-digit broker
         pips = rm.sl_distance_in_pips(1.1010, 1.1000, _SYMBOL_INFO)
         assert math.isclose(pips, 10.0, rel_tol=1e-3)
+
+
+class TestIncrementOpenTradeCount:
+    def test_increment_raises_count(self, rm: RiskManager) -> None:
+        rm.update_account(10_000, 10_000)
+        rm.set_open_trade_count(0)
+        rm.increment_open_trade_count()
+        ok, reason = rm.can_open_trade(10_000)
+        assert ok  # still 1 < 5 limit
+
+    def test_increment_blocks_at_limit(self, rm: RiskManager) -> None:
+        """After incrementing to the max, the next trade must be blocked."""
+        rm.update_account(10_000, 10_000)
+        rm.set_open_trade_count(4)
+        rm.increment_open_trade_count()  # now at 5 == max
+        ok, reason = rm.can_open_trade(10_000)
+        assert not ok
+        assert "max_open_trades" in reason
+
+    def test_intra_cycle_limit_enforced(self, rm: RiskManager) -> None:
+        """Two trades must not be allowed in the same cycle when max_open_trades=1."""
+        single_trade_rm = RiskManager({
+            "max_open_trades": 1,
+            "max_risk_per_trade_pct": 1.0,
+            "max_daily_loss_pct": 3.0,
+            "max_total_drawdown_pct": 10.0,
+            "default_sl_atr_multiplier": 2.0,
+            "default_tp_rr_ratio": 2.0,
+        })
+        single_trade_rm.update_account(10_000, 10_000)
+        single_trade_rm.set_open_trade_count(0)
+
+        ok_first, _ = single_trade_rm.can_open_trade(10_000)
+        assert ok_first
+
+        single_trade_rm.increment_open_trade_count()  # agent calls this after opening
+        ok_second, reason = single_trade_rm.can_open_trade(10_000)
+        assert not ok_second
+        assert "max_open_trades" in reason
