@@ -135,8 +135,24 @@ _TOOLS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "get_open_positions",
-            "description": "Return all currently open MT5 positions with PnL and metadata.",
-            "parameters": {"type": "object", "properties": {}, "required": []},
+            "description": (
+                "Return currently open MT5 positions with PnL and metadata. "
+                "Pass an optional 'symbol' to inspect only one instrument "
+                "(e.g. 'BTCUSD')."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "symbol": {
+                        "type": "string",
+                        "description": (
+                            "MT5 symbol to filter positions, e.g. BTCUSD. "
+                            "If omitted, all open positions are returned."
+                        ),
+                    },
+                },
+                "required": [],
+            },
         },
     },
 ]
@@ -185,7 +201,7 @@ class TradingAgent:
         # Instruments
         instr = self._cfg.get("instruments", {})
         self._instruments: list[str] = (
-            instr.get("forex", []) + instr.get("commodities", [])
+            instr.get("forex", []) + instr.get("commodities", []) + instr.get("crypto", [])
         )
         self._primary_timeframe: str = self._cfg.get("technical", {}).get("timeframe", "H1")
 
@@ -332,6 +348,9 @@ class TradingAgent:
             }
 
         elif name == "get_open_positions":
+            symbol_filter = args.get("symbol")
+            if symbol_filter:
+                return [p for p in positions if p.get("symbol") == symbol_filter.upper()]
             return positions
 
         elif name == "open_trade":
@@ -385,16 +404,7 @@ class TradingAgent:
 
         # Use defaults when offline / dry-run
         if not symbol_info:
-            symbol_info = {
-                "digits": 5,
-                "point": 0.00001,
-                "trade_contract_size": 100_000,
-                "volume_min": 0.01,
-                "volume_max": 500.0,
-                "volume_step": 0.01,
-                "bid": price or 1.0,
-                "ask": (price or 1.0) + 0.00010,
-            }
+            symbol_info = self._default_symbol_info(symbol, price)
 
         order_type = ORDER_TYPE_BUY if direction.upper() == "BUY" else ORDER_TYPE_SELL
         entry_price = symbol_info.get("ask" if order_type == ORDER_TYPE_BUY else "bid", price or 1.0)
@@ -488,10 +498,11 @@ class TradingAgent:
         positions: list[dict[str, Any]],
     ) -> str:
         return (
-            "You are TurboTrading, an expert AI forex and commodity trading agent. "
+            "You are TurboTrading, an expert AI forex, commodity, and crypto trading agent. "
             "Your goal is to identify high-probability trading opportunities on major "
             "forex pairs (EURUSD, GBPUSD, USDJPY, AUDUSD, USDCHF, USDCAD), "
-            "gold (XAUUSD), and crude oil (USOIL) on a MetaTrader 5 platform.\n\n"
+            "gold (XAUUSD), crude oil (USOIL), and Bitcoin (BTCUSD) "
+            "on a MetaTrader 5 platform.\n\n"
             "Rules:\n"
             "1. ALWAYS call get_technical_analysis before deciding on any trade.\n"
             "2. ALWAYS call get_fundamental_context to check for news blackouts.\n"
@@ -500,6 +511,48 @@ class TradingAgent:
             "   (BUY/SELL signal strength > 0.3 and multiple indicator confirmation).\n"
             "5. Risk management is enforced automatically – do not override it.\n"
             "6. Prefer closing losing positions before opening new ones.\n"
-            f"7. Current account equity: {equity:.2f}.\n"
-            f"8. Open positions: {len(positions)}.\n"
+            "7. To inspect a specific position (e.g. BTCUSD), call get_open_positions "
+            "   with the symbol argument.\n"
+            f"8. Current account equity: {equity:.2f}.\n"
+            f"9. Open positions: {len(positions)}.\n"
         )
+
+    # ── Symbol-info helpers ───────────────────────────────────────────────────
+
+    @staticmethod
+    def _default_symbol_info(symbol: str, price: float | None) -> dict[str, Any]:
+        """Return sensible offline / dry-run defaults for *symbol_info*.
+
+        Crypto instruments (BTCUSD, ETHUSD, …) have very different contract
+        specs from standard forex pairs, so we distinguish them here rather
+        than always falling back to forex defaults.
+        """
+        ref = price or 1.0
+        sym = symbol.upper()
+
+        # Crypto: price quoted to 2 decimal places, 1-unit contract size
+        _CRYPTO_BASES = ("BTC", "ETH", "XRP", "LTC", "ADA", "SOL", "BNB")
+        if any(sym.startswith(base) for base in _CRYPTO_BASES):
+            spread = max(ref * 0.001, 1.0)  # 0.1% spread, at least $1
+            return {
+                "digits": 2,
+                "point": 0.01,
+                "trade_contract_size": 1.0,
+                "volume_min": 0.01,
+                "volume_max": 10.0,
+                "volume_step": 0.01,
+                "bid": ref,
+                "ask": ref + spread,
+            }
+
+        # Default: standard forex / commodity 5-digit pair
+        return {
+            "digits": 5,
+            "point": 0.00001,
+            "trade_contract_size": 100_000,
+            "volume_min": 0.01,
+            "volume_max": 500.0,
+            "volume_step": 0.01,
+            "bid": ref,
+            "ask": ref + 0.00010,
+        }

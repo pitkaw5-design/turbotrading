@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 # Currency to instrument mapping used for relevance filtering
 _CURRENCY_INSTRUMENTS: dict[str, list[str]] = {
-    "USD": ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCHF", "USDCAD", "XAUUSD", "USOIL"],
+    "USD": ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCHF", "USDCAD", "XAUUSD", "USOIL", "BTCUSD"],
     "EUR": ["EURUSD"],
     "GBP": ["GBPUSD"],
     "JPY": ["USDJPY"],
@@ -25,6 +25,7 @@ _CURRENCY_INSTRUMENTS: dict[str, list[str]] = {
     "CHF": ["USDCHF"],
     "CAD": ["USDCAD"],
     "XAU": ["XAUUSD"],
+    "BTC": ["BTCUSD"],
 }
 
 

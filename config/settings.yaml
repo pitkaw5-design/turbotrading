@@ -12,6 +12,8 @@ instruments:
   commodities:
     - XAUUSD   # Gold
     - USOIL    # Crude oil (WTI)
+  crypto:
+    - BTCUSD   # Bitcoin / US Dollar
 
 # ─── MT5 connection ─────────────────────────────────────────────────────────
 mt5:

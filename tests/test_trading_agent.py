@@ -253,3 +253,153 @@ class TestIntraCycleTradeLimit:
         assert result1["status"] == "executed"
         assert result2["status"] == "blocked"
         assert "max_open_trades" in result2["reason"]
+
+
+# ── BTCUSD / crypto support ───────────────────────────────────────────────────
+
+@pytest.fixture()
+def agent_with_btc(tmp_path) -> TradingAgent:
+    """Agent configured with BTCUSD in the crypto instruments list."""
+    cfg_file = tmp_path / "settings.yaml"
+    cfg_file.write_text(
+        """
+instruments:
+  forex: [EURUSD]
+  commodities: []
+  crypto: [BTCUSD]
+mt5:
+  login: 0
+  password: ""
+  server: ""
+technical:
+  timeframe: H1
+  lookback_bars: 300
+  sma_fast: 20
+  sma_slow: 50
+  ema_trend: 200
+  rsi_period: 14
+  rsi_overbought: 70
+  rsi_oversold: 30
+  macd_fast: 12
+  macd_slow: 26
+  macd_signal: 9
+  atr_period: 14
+  bb_period: 20
+  bb_std: 2.0
+  stoch_k: 5
+  stoch_d: 3
+  stoch_smooth: 3
+fundamental:
+  high_impact_only: true
+  news_lookback_hours: 24
+risk:
+  max_risk_per_trade_pct: 1.0
+  max_open_trades: 5
+  max_daily_loss_pct: 3.0
+  max_total_drawdown_pct: 10.0
+  default_sl_atr_multiplier: 2.0
+  default_tp_rr_ratio: 2.0
+  trailing_stop: true
+  trailing_stop_atr_multiplier: 1.5
+agent:
+  model: gpt-4o
+  temperature: 0.1
+  max_iterations: 3
+  cycle_interval_seconds: 60
+  dry_run: true
+"""
+    )
+    return TradingAgent(config_path=str(cfg_file), dry_run=True)
+
+
+class TestBtcusdSupport:
+    def test_btcusd_in_instruments(self, agent_with_btc: TradingAgent) -> None:
+        """BTCUSD must appear in the watched instrument list."""
+        assert "BTCUSD" in agent_with_btc._instruments
+
+    def test_crypto_loaded_alongside_forex(self, agent_with_btc: TradingAgent) -> None:
+        """Both forex (EURUSD) and crypto (BTCUSD) must be loaded."""
+        assert "EURUSD" in agent_with_btc._instruments
+        assert "BTCUSD" in agent_with_btc._instruments
+
+    def test_get_open_positions_filters_by_symbol(self, agent_with_btc: TradingAgent) -> None:
+        """The get_open_positions tool must return only BTCUSD positions when
+        the optional 'symbol' argument is provided."""
+        positions = [
+            {"ticket": 1, "symbol": "EURUSD", "volume": 0.1, "type": 0},
+            {"ticket": 2, "symbol": "BTCUSD", "volume": 0.01, "type": 0},
+            {"ticket": 3, "symbol": "BTCUSD", "volume": 0.02, "type": 1},
+        ]
+        result = agent_with_btc._execute_tool(
+            "get_open_positions",
+            {"symbol": "BTCUSD"},
+            "BTCUSD",
+            10_000,
+            positions,
+        )
+        assert len(result) == 2
+        assert all(p["symbol"] == "BTCUSD" for p in result)
+
+    def test_get_open_positions_no_filter_returns_all(self, agent_with_btc: TradingAgent) -> None:
+        """Without a symbol argument, get_open_positions must return all positions."""
+        positions = [
+            {"ticket": 1, "symbol": "EURUSD", "volume": 0.1, "type": 0},
+            {"ticket": 2, "symbol": "BTCUSD", "volume": 0.01, "type": 0},
+        ]
+        result = agent_with_btc._execute_tool(
+            "get_open_positions",
+            {},
+            "BTCUSD",
+            10_000,
+            positions,
+        )
+        assert len(result) == 2
+
+    def test_default_symbol_info_crypto_digits(self) -> None:
+        """`_default_symbol_info` must return 2-digit precision for BTCUSD."""
+        info = TradingAgent._default_symbol_info("BTCUSD", 85_000.0)
+        assert info["digits"] == 2
+        assert info["point"] == 0.01
+        assert info["trade_contract_size"] == 1.0
+
+    def test_default_symbol_info_forex_digits(self) -> None:
+        """`_default_symbol_info` must return 5-digit precision for EURUSD."""
+        info = TradingAgent._default_symbol_info("EURUSD", 1.1)
+        assert info["digits"] == 5
+        assert info["point"] == 0.00001
+        assert info["trade_contract_size"] == 100_000
+
+    def test_open_btcusd_trade_dry_run(self, agent_with_btc: TradingAgent) -> None:
+        """Opening a BTCUSD trade in dry-run mode must succeed with crypto
+        symbol_info defaults (not forex defaults)."""
+        agent_with_btc._risk.update_account(10_000, 10_000)
+        agent_with_btc._risk.set_open_trade_count(0)
+        df = _make_df()
+        with (
+            patch.object(agent_with_btc._fundamental, "is_news_blackout", return_value=False),
+            patch.object(agent_with_btc._mt5, "get_rates", return_value=df),
+            patch.object(
+                agent_with_btc._technical,
+                "analyze",
+                return_value={
+                    "signal": "BUY",
+                    "signal_strength": 0.7,
+                    "atr": 500.0,       # realistic ATR for BTC (~$500)
+                    "price": 85_000.0,  # realistic BTC price
+                },
+            ),
+            patch.object(agent_with_btc._mt5, "get_symbol_info", return_value={}),
+        ):
+            result = agent_with_btc._handle_open_trade("BTCUSD", "BUY", "test crypto", 10_000)
+
+        assert result["status"] == "executed"
+        order = result["order"]
+        # Entry price should be near the BTC ask (~85,000)
+        assert order["price"] > 1_000  # definitely not a forex price
+
+    def test_btcusd_symbol_to_currencies(self) -> None:
+        """BTCUSD must resolve to [BTC, USD] for the fundamental news filter."""
+        from src.analysis.fundamental import FundamentalAnalyzer
+        currencies = FundamentalAnalyzer._symbol_to_currencies("BTCUSD")
+        assert "BTC" in currencies
+        assert "USD" in currencies
